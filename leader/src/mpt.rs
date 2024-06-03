@@ -1,15 +1,16 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use eth_trie_utils::nibbles::Nibbles;
-use eth_trie_utils::partial_trie::PartialTrie;
-use eth_trie_utils::partial_trie::{HashedPartialTrie, Node};
-use eth_trie_utils::trie_subsets::create_trie_subset;
 use ethers::prelude::*;
 use ethers::utils::rlp;
 use ethers::abi::AbiEncode;
 use plonky2_evm::generation::mpt::AccountRlp;
 use tracing::warn;
+use evm_arithmetization::generation::mpt::AccountRlp;
+use mpt_trie::nibbles::{Nibbles, NibblesIntern};
+use mpt_trie::partial_trie::PartialTrie;
+use mpt_trie::partial_trie::{HashedPartialTrie, Node};
+use mpt_trie::trie_subsets::create_trie_subset;
 
 use crate::utils::keccak;
 use crate::EMPTY_HASH;
@@ -90,7 +91,7 @@ impl Mpt {
                     } else {
                         Nibbles {
                             count: 0,
-                            packed: U512::zero(),
+                            packed: NibblesIntern::zero(),
                         }
                     };
                     ext_prefix.push_nibble_front(b);
@@ -185,7 +186,7 @@ fn nibbles_from_hex_prefix_encoding(b: &[u8]) -> Nibbles {
             Nibbles {
                 count: 2 * b.len() - 1,
                 // packed: U512::from_bytes_be(&bs).unwrap(),
-                packed: U512::from_big_endian(&b),
+                packed: NibblesIntern::from_big_endian(&b),
             }
             // Nibbles::from_bytes_be(&b).unwrap()
         }
@@ -226,19 +227,21 @@ pub fn apply_diffs(
             for (&k, &v) in &old.storage.clone().unwrap_or_default() {
                 if !new.storage.clone().unwrap_or_default().contains_key(&k) {
                     // dbg!(format!("Del {:?} {:?}", addr, k));
-                    trie.delete(tokk(k));
+                    trie.delete(tokk(k)).unwrap();
                     // println!("Done Del {:?} {:?}", addr, k);
                 } else {
                     let sanity = trie.get(tokk(k)).unwrap();
                     let sanity = rlp::decode::<U256>(sanity).unwrap();
                     assert_eq!(sanity, v.into_uint());
                     let w = *new.storage.clone().unwrap_or_default().get(&k).unwrap();
-                    trie.insert(tokk(k), rlp::encode(&w.into_uint()).to_vec());
+                    trie.insert(tokk(k), rlp::encode(&w.into_uint()).to_vec())
+                        .unwrap();
                 }
             }
             for (&k, v) in &new.storage.clone().unwrap_or_default() {
                 if !old.storage.clone().unwrap_or_default().contains_key(&k) {
-                    trie.insert(tokk(k), rlp::encode(&v.into_uint()).to_vec());
+                    trie.insert(tokk(k), rlp::encode(&v.into_uint()).to_vec())
+                        .unwrap();
                 }
             }
             storage.insert(key, trie);
@@ -250,7 +253,8 @@ pub fn apply_diffs(
         if !diff.pre.contains_key(addr) {
             let mut trie = HashedPartialTrie::from(Node::Empty);
             for (&k, v) in &new.storage.clone().unwrap_or_default() {
-                trie.insert(tokk(k), rlp::encode(&v.into_uint()).to_vec());
+                trie.insert(tokk(k), rlp::encode(&v.into_uint()).to_vec())
+                    .unwrap();
             }
             storage.insert(key, trie);
         }
@@ -261,7 +265,7 @@ pub fn apply_diffs(
     // Delete accounts that are not in the post state.
     for addr in diff.pre.keys() {
         if !diff.post.contains_key(addr) {
-            mpt.delete(tok(addr));
+            mpt.delete(tok(addr)).unwrap();
         }
     }
 
@@ -292,7 +296,8 @@ pub fn apply_diffs(
                     .hash(),
                 code_hash,
             };
-            mpt.insert(tok(addr), rlp::encode(&account).to_vec());
+            mpt.insert(tok(addr), rlp::encode(&account).to_vec())
+                .unwrap();
         } else {
             let old = mpt
                 .get(tok(addr))
@@ -327,7 +332,8 @@ pub fn apply_diffs(
                     .unwrap_or(old.storage_root),
                 code_hash,
             };
-            mpt.insert(tok(addr), rlp::encode(&account).to_vec());
+            mpt.insert(tok(addr), rlp::encode(&account).to_vec())
+                .unwrap();
         }
     }
 

@@ -1,19 +1,19 @@
 use anyhow::{bail, Result};
+use evm_arithmetization::GenerationInputs;
 use ops::{AggProof, BlockProof, TxProof};
 use paladin::{
     directive::{Directive, IndexedStream, Literal},
     runtime::Runtime,
 };
-use plonky_block_proof_gen::{
+use proof_gen::{
     proof_types::{AggregatableProof, GeneratedBlockProof},
     types::PlonkyProofIntern,
 };
-use protocol_decoder::types::TxnProofGenIR;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProverInput {
-    pub proof_gen_ir: Vec<TxnProofGenIR>,
+    pub proof_gen_ir: Vec<GenerationInputs>,
 }
 
 impl ProverInput {
