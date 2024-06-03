@@ -7,7 +7,9 @@ use eth_trie_utils::partial_trie::{HashedPartialTrie, Node};
 use eth_trie_utils::trie_subsets::create_trie_subset;
 use ethers::prelude::*;
 use ethers::utils::rlp;
+use ethers::abi::AbiEncode;
 use plonky2_evm::generation::mpt::AccountRlp;
+use tracing::warn;
 
 use crate::utils::keccak;
 use crate::EMPTY_HASH;
@@ -132,26 +134,44 @@ pub fn insert_mpt(mpt: &mut Mpt, proof: Vec<Bytes>) {
     }
 }
 
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02X}", b)).collect()
+}
+
 fn insert_mpt_helper(mpt: &mut Mpt, rlp_node: Bytes) {
     mpt.mpt
         .insert(H256(keccak(&rlp_node)), MptNode(rlp_node.to_vec()));
-    let a = rlp::decode_list::<Vec<u8>>(&rlp_node);
-    if a.len() == 2 {
-        let prefix = a[0].clone();
-        let is_leaf = (prefix[0] >> 4 == 2) || (prefix[0] >> 4 == 3);
-        let mut nibbles = nibbles_from_hex_prefix_encoding(&prefix);
-        loop {
-            let node = rlp::encode_list::<Vec<u8>, _>(&[
-                nibbles.to_hex_prefix_encoding(is_leaf).to_vec(),
-                a[1].clone(),
-            ]);
-            mpt.mpt.insert(H256(keccak(&node)), MptNode(node.to_vec()));
-            if nibbles.is_empty() {
-                break;
+    let binding = rlp_node.clone();
+    let rlp_obj = rlp::Rlp::new(&binding as &[u8]);
+    let decoded = rlp_obj.as_list::<Vec<u8>>();
+    match decoded {
+        Ok(a) => {
+            if a.len() == 2 {
+                let prefix = a[0].clone();
+                let is_leaf = (prefix[0] >> 4 == 2) || (prefix[0] >> 4 == 3);
+                let mut nibbles = nibbles_from_hex_prefix_encoding(&prefix);
+                loop {
+                    let node = rlp::encode_list::<Vec<u8>, _>(&[
+                        nibbles.to_hex_prefix_encoding(is_leaf).to_vec(),
+                        a[1].clone(),
+                    ]);
+                    mpt.mpt.insert(H256(keccak(&node)), MptNode(node.to_vec()));
+                    if nibbles.is_empty() {
+                        break;
+                    }
+                    nibbles.pop_next_nibble_front();
+                }
             }
-            nibbles.pop_next_nibble_front();
-        }
+        },
+        Err(e) => {
+            warn!("decode rlp node failed {} {:?}", bytes_to_hex(&rlp_node.clone() as &[u8]), e);
+            for i in 0..rlp_obj.item_count().unwrap() {
+                let item = rlp_obj.at(i).unwrap();
+                insert_mpt_helper(mpt, Bytes::from(item.as_raw().to_vec()));
+            }
+        },
     }
+
 }
 
 fn nibbles_from_hex_prefix_encoding(b: &[u8]) -> Nibbles {
